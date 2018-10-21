@@ -1,0 +1,170 @@
+---
+output:
+  pdf_document: default
+  toc: yes
+  toc_float: yes
+  template: include/template.tex
+title: 'ANOVA de una vía, caso de estudio.'
+author: "Diego H Halabi, PhD, Assist. Prof."
+lang: es
+abstract: "El análisis de la varianza, Anova, es una herramienta estadística que nos permite identificar si existen diferencias entre 3 o más grupos, cuando en ellos medimos una variable cuantitativa. Un ejemplo clásico en Medicina, es cuando tenemos que comparar los resultados de 3 tratamientos. En este ejercicio, trabajaremos con los datos simulados de un Ensayo Clínico Aleatorio, pasando por las diferentes etapas que nos permitirán obtener un modelo para tomar la mejor decición de tratamiento."
+---
+\tableofcontents
+
+## Descripción de los datos
+Estos datos provienen de un Ensayo Clínico Aleatorio de diseño paralelo (simulados) en el que se trató durante 2 meses a 60 pacientes diabéticos tipo II con metformina, ejercicio o antocianinas. El outcome fue el nivel de hemoglobina glicosilada al inicio del tratamiento (basal) y la misma medición una vez finalizado el tratamiento. En la figura 1\ref{fig1} se puede ver el flujograma del estudio, para su mejor comprensión.
+
+En este documento veremos cómo realizar un análisis de los datos para verificar si alguno de los tratamientos es más efectivo.
+
+![Diagrama del Ensayo Clínico Aleatorio del que provienen los datos (simulados).](include/figure.pdf)
+
+
+## 1. Importar los datos.
+
+En R, podemos ingresar los datos directamente en la línea de comandos. Sin embargo, muchas veces tendremos extensas bases de datos que ya están tabulados, y resulta más simple y seguro importarlos.
+Es importante conocer los formatos en que se puede encontrar una base de datos. El formato más simple es csv, el cual puede ser exportado desde programas como Excel, Google Docs, Calc, etc. 
+
+Para este ejemplo, utilizaremos un archivo con los datos tabulados que se llama `analisis-estadistico.csv `.
+
+```{r}
+df <- read.csv("data.csv", sep=";")
+str(df)
+```
+
+Las variables en nuestro set de datos son:
+
+* Grupo: variable independiente, categorizada en los 3 posibles tratamientos.
+
+* HbA1cA: covariable, corresponde a los niveles de hemoglobina glicosilada basal.
+
+* Hba1cB: variable dependiente, que corresponde a la hemoglobina glicosilada al finalizar los tratamientos.
+
+
+## 2. Transformar.
+Como nos interesa conocer la efectividad de cada tratamiento en la reducción de la hemoglobina glicosilada, debemos sustraer el valor final (HbA1cB) a la medición basal (HbA1cA). En otras palabras, crearemos una nueva variable; reducción de la hemoglobina glicosilada, y la llamaremos HbA1cR.
+
+```{r}
+df$HbA1cR <- df$HbA1cA-df$HbA1cB
+str(df)
+```
+
+## 3. Visualizar.
+Visualizaremos nuestros datos mediante gráficos y números.
+
+### 3.1 Gráficos.
+Una forma sencilla de observar los datos, es mediante los gráficos. En este caso, graficaremos los niveles de hemoglobina glicosilada al inicio y al final del tratamiento. Para realizar un gráfico de cajas y bigotes, cargaremos la librería `ggplot2`.
+
+```{r, fig.width = 3, fig.height = 3}
+library(ggplot2)
+ggplot(df,aes(x=Grupo,y=HbA1cR))+
+  geom_boxplot()+
+  scale_x_discrete(name="Tratamiento")+
+  scale_y_continuous(name="Reduccion de la HbA1c (%)")
+```
+
+Al finalizar el tratamiento, observamos que el grupo tratado con antocianinas reduce los niveles de hemoglobina glicosilada en comparación a los grupos tratados con ejercicio o metformina. Sin embargo, alguien podría considerar que esta diferencia no es suficiente para tomar decisiones clínicas, por lo que debemos profundizar más nuestro análisis.
+
+
+### 3.2 Números.
+Aquí nos interesa obtener medidas de tendencia central y dispersión, principalmente.
+Comenzamos por cargar la librería `dplyr` que nos permitirá esto.
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+```
+
+Ahora utilizamos la función `summarize` para obtener los resultados que nos interesan.
+```{r}
+# Medición basal, por grupo
+df %>% 
+  group_by(Grupo) %>% 
+  summarize(mean = mean(HbA1cA), sd = sd(HbA1cA), n = n())
+# Medición final, por grupo
+df %>% 
+  group_by(Grupo) %>% 
+  summarize(mean = mean(HbA1cB), sd = sd(HbA1cB), n = n())
+# Diferencia inicial y final, pro grupo
+df %>% 
+  group_by(Grupo) %>% 
+  summarize(mean = mean(HbA1cR), sd = sd(HbA1cR), n = n())
+```
+
+Resulta muy útil observar si al inicio del tratamiento, los grupos eran similares. También se puede observar la misma tendencia visualizada en el gráfico; el tratamiento con antocianinas parece reducir más la hemoglobina glicosilada, cuando lo comparamos a la metformina y el ejercicio.
+
+## 4. Modelamiento.
+Evaluaremos si la reducción de la hemoglobina glicosilada en el grupo tratado con antocianinas es significativa; es decir, si se debe al azar o el tratamiento realmente es efectivo. Para esto, ajustaremos nuestros datos a un modelo de Análisis de la Varianza; Anova.
+
+Antes de ajustar a Anova, debemos verificar que los datos cumplan con ciertos requisitos, o *assumptions*. En primer lugar, los datos deben ajustarse a la distribución normal, y en segundo lugar, debe existir homogeneidad en las varianzas.
+
+
+### 4.1. Ajuste a la distribución normal.
+Verificaremos si nuestros resultados se ajustan a una distribución normal, mediante el test de Shapiro Wilk. Por lo tanto, la hipótesis nula será que nuestros datos tienen una distribución normal.
+
+
+```{r}
+tapply(df$HbA1cR,df$Grupo,shapiro.test)
+```
+Observamos que el valor W de los 3 grupos es cercano a 1, y su p-value correspondiente es mayor a 0.05, por lo tanto, podemos aceptar la hipótesis nula y asumir una distribución normal.
+
+Si aun existieran dudas, podríamos corroborar el ajuste mediante un gráfico Q-Q, con la función `qqnorm`.
+
+
+### 4.2 Verificar la homogeneidad de las varianzas.
+Mediante el test de Levene, verificaremos si las varianzas son homogéneas en nuestros 3 grupos. Para esto, tenemos que cargar la librería `car`.
+La hipótesis nula es que no existen diferencias en las varianzas de los 3 grupos.
+```{r}
+library(car)
+leveneTest(df$HbA1cR~df$Grupo)
+```
+Al igual que el test anterior, al encontrar un p-value elevado, podemos aceptar la hipótesis nula y asumir una similitud en las varianzas de los 3 grupos.
+
+
+### 4.3 Análisis de la varianza.
+Ya hemos verificado que nuestros datos cumplen con los requisitos o *assumptions* para realizar un test de Anova.
+Lo primero que haremos, será ajustar el modelo:
+```{r}
+Anova <- aov(df$HbA1cR~df$Grupo)
+summary(Anova)
+```
+
+
+
+Podemos observar que el p-value es menor a 0.001. Esto significa que existen diferencias significativas entre al menos un grupo con el resto, ergo rechazamos la hipótesis nula. Podemos presumir que se trata del grupo tratado con antocianinas, pero desconocemos si hay diferencias entre los otros 2 grupos.
+
+Para dilucidar esto, haremos un test post-hoc, que básicamente corresponde a hacer 3 t-test con un ajuste para las observaciones múltiples. En este caso, ajustaremos nuestro modelo al test de Tukey, ya que se encuentra en un sano equilibrio entre test muy conservadores como Bonferroni, pero sin el alto riesgo de cometer el error de tipo I por no ajustar los p-value acumulados, como el caso de Dunn.
+
+
+```{r}
+TukeyHSD(Anova)
+```
+
+Aquí podemos ver en los p-value ajustados, que las diferencias solo son significativas entre las antocianinas y los demás grupos. El ejercicio y la metformina no difieren entre ellos.
+Además, podemos obtener datos respecto a la magnitud del efecto; la diferencias de medias de las antocianinas fue 1.17 (IC 95% 1.76 - 0.57) con el ejercicio, y 1.32 (IC95% 1.91 - 0.73) con la metformina.
+
+## 5. Conclusión.
+Basado en los resultados obtenidos, he confeccionado la tabla\ref{tab:1}, procurando que se mantenga lo más simple posible, pero sin perder información relevante para la práctica clínica.
+
+
+\begin{table}[h]
+\renewcommand*\footnoterule{}
+\hspace{2.5cm}
+\begin{minipage}{0.6\textwidth}
+\centering
+\caption{Reducción de la hemoglobina glicosilada (HbA1c) después de 2 meses de tratamiento con antocianinas, ejercicio o metformina. Los resultados están representados como promedio ± desviación estándar (DE).}
+\label{tab:1}
+\begin{tabular}{l c c c}
+\hline \\ [-1.5ex]
+Tratamiento & n\footnote{número de pacientes} & Reducción HbA1c(\%) & dm\footnote{diferencia de medias} (95\% IC) \\ [1ex]
+\hline \\ [-1.5ex]
+Antocianinas & 20 & 3.44 ± 0.90\footnote{diferente de metformina y ejercicio (p < 0.001; Anova, post-hoc Tukey)} & Ref \\ [1ex]
+Metformina & 20 & 2.28 ± 0.70 & 1.32 (0.73 - 1.91) \\ [1ex]
+Ejercicio & 20 & 2.12 ± 0.71 & 1.17 (0.57 - 1.75) \\ [1ex]
+\hline
+\end{tabular}
+\end{minipage}
+\end{table}
+
+El tratamiento con antocianinas es más efectivo que la metformina o el ejercicio para el manejo de pacientes diabéticos, reduciendo el porcentaje de hemoglobina glicosilada entre 0.57% a 1.91% más.
+
+Es necesario mencionar que otra posibilidad de abordar este conjunto de datos, hubiese sido analizando los niveles de hemoglobina glicosilada basal y final mediante Anova de 2 factores.
+
